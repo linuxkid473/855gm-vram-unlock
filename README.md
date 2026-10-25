@@ -11,10 +11,11 @@ BIOS offers (stock)                         with the stub
   1024x768        8-bit only                  8 / 16 / 32-bit modes offered and set
 ```
 
-> **Status:** works on the author's Dell Inspiron 510m (BIOS A07). ZETA's loader boots with the patch live and
-> offers 1024x768x16. A full-screen 1024x768x32 test pattern displays correctly on the LCD. Everything else
-> is emulator-tested only. This pokes chipset registers and installs resident BIOS hooks: **use at your own
-> risk**, and read [Safety](#safety).
+> **Status:** works on the author's Dell Inspiron 510m (BIOS A07). Confirmed on that hardware: ZETA's loader boots
+> with the patch live and offers 1024x768x16; a full-screen 1024x768x32 test pattern displays correctly on the LCD;
+> the hard-disk loader installs, and the machine then boots to the loader menu and into ZETA with the stick removed.
+> Other machines are untested. This pokes chipset registers, installs resident BIOS hooks and can write the
+> disk's boot sector: **use at your own risk**, and read [Safety](#safety).
 
 ## The problem
 
