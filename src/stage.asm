@@ -3655,6 +3655,14 @@ log_hdd:
     call disk_io
     jc .back
     mov byte [hd_ok], 1
+    mov dword [dio_lba], 1          ; the 62 sectors in front of the first partition (read only)
+    mov word [dio_cnt], 62
+    mov word [dio_off], 0
+    mov word [dio_seg], 0x4000
+    mov byte [dio_write], 0
+    call disk_io
+    jc .back
+    mov byte [hd_gap], 1
 .back:
     mov dl, [boot_drive]            ; logging context goes back to the USB stick
     call probe_drive
@@ -3707,7 +3715,114 @@ log_hdd:
     dec cx
     jnz near .p
     SAY "  (type 0x07 NTFS, 0x0B/0x0C FAT32, 0xDE Dell utility, 0xEB BeOS, 0x05/0x0F extended)", 10
+%ifndef HDDMODE
+    call log_gap
+%endif
     ret
+
+%ifndef HDDMODE
+; Which of sectors 1-62 are not all zero, and what is in the first few of them.
+log_gap:
+    cmp byte [hd_gap], 0
+    jne .have
+    SAY "  sectors 1-62: could not be read", 10
+    ret
+.have:
+    mov byte [nz_n], 0
+    push es
+    mov ax, 0x4000
+    mov es, ax
+    xor bx, bx
+    xor di, di
+    cld
+.s: push di
+    mov cx, 512
+    xor al, al
+    repe scasb
+    pop di
+    je .z
+    movzx si, byte [nz_n]
+    cmp si, 62
+    jae .z
+    mov [nz_list + si], bl
+    inc byte [nz_n]
+.z: add di, 512
+    inc bx
+    cmp bx, 62
+    jb .s
+    pop es
+    SAY "  sectors 1-62: "
+    movzx ax, byte [nz_n]
+    call dec16
+    SAY " not empty"
+    cmp byte [nz_n], 0
+    jne .list
+    SAY " (the gap is free)", 10
+    ret
+.list:
+    SAY " - LBA:"
+    xor si, si
+.l: cmp si, 62
+    jae .ld
+    movzx bx, byte [nz_n]
+    cmp si, bx
+    jae .ld
+    mov al, ' '
+    call putc
+    movzx ax, byte [nz_list + si]
+    inc ax                          ; index 0 is LBA 1
+    call dec16
+    inc si
+    jmp .l
+.ld:
+    call nl
+    xor si, si                      ; dump the first 4 non-empty sectors: hex, then text
+.d: cmp si, 4
+    jae .done
+    movzx bx, byte [nz_n]
+    cmp si, bx
+    jae .done
+    push si
+    movzx bx, byte [nz_list + si]
+    mov ax, bx
+    shl ax, 9                       ; offset of that sector inside the 0x4000 buffer
+    mov si, ax
+    mov bx, 0x4000
+    mov di, bigbuf
+    mov dx, ds
+    mov cx, 32
+    call farcopy
+    pop si
+    movzx bx, byte [nz_list + si]
+    SAY "  LBA "
+    movzx ax, byte [nz_list + si]
+    inc ax
+    call dec16
+    SAY " (first 64 bytes):", 10
+    push si
+    mov si, bigbuf
+    mov cx, 64
+    call hexdump
+    SAY "  text: "
+    mov si, bigbuf
+    mov cx, 64
+.t: lodsb
+    cmp al, 32
+    jb .dot
+    cmp al, 126
+    jbe .p
+.dot:
+    mov al, '.'
+.p: call putc
+    dec cx
+    jnz .t
+    call nl
+    pop si
+    inc si
+    jmp .d
+.done:
+    ret
+%endif
 
 ; ============================================================ hard-disk loader mode
 ; Assembled with -DHDDMODE and installed into sectors 1..STAGE_SECTORS of the internal disk by
@@ -4446,6 +4561,9 @@ p_srcres:   resw 1
 p_count:    resw 1
 p_entry:    resw 1
 rd_ok:      resb 1
+hd_gap:     resb 1
+nz_n:       resb 1
+nz_list:    resb 64
 hdd_wr_ok:  resb 1
 h_wr:       resb 1
 h_cf:       resb 1

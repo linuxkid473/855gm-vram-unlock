@@ -126,6 +126,12 @@ def typed(start, word):
     return [(start + 0.35 * i, c) for i, c in enumerate(keys(word))]
 
 
+def stick_log(path):
+    files = fatimg.read_files(bytearray(open(path, "rb").read()))
+    n = int(files["COUNTER.TXT"][:4]) % 4
+    return files["RUN%d.LOG" % n].decode("latin1")
+
+
 def sha(b):
     return hashlib.sha256(b).hexdigest()
 
@@ -160,6 +166,7 @@ def main():
     check("everything from sector 63 on is untouched", d[63 * SECT:] == orig[63 * SECT:])
     saved = fatimg.read_files(bytearray(open(stick, "rb").read()))["MBRORIG.BIN"][:SECT]
     check("original MBR also saved on the stick (MBRORIG.BIN)", saved == orig[:SECT])
+    check("diagnostics report a clean gap as free", "(the gap is free)" in stick_log(stick))
     installed = d
     shutil.copy(disk, os.path.join(WORK, "installed.img"))
 
@@ -225,6 +232,10 @@ def main():
         text = run_qemu([st, p], [(14, "sendkey i")] + typed(16, word), 26)
         check("refuses: " + name, expect in text)
         check("   disk unchanged", open(p, "rb").read() == before)
+        if "gap_junk" in kw:
+            lg = stick_log(st)
+            check("   log lists the non-empty gap sector (LBA 5) with its contents",
+                  "1 not empty - LBA: 5" in lg and "GRUB-STAGE-1.5!!" in lg)
     p = os.path.join(WORK, "refuse.img")
     shutil.copy(os.path.join(WORK, "installed.img"), p)
     text = run_qemu([stick, p], [(14, "sendkey i")] + typed(16, "install\n"), 26)
