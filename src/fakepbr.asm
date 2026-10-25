@@ -55,7 +55,11 @@ hex4:
     jmp putc
 dlv: db 0
 siv: dw 0
+%ifdef XP
+m1: db "FAKE-XP PBR reached, DL=0x", 0
+%else
 m1: db "FAKE-PBR reached, DL=0x", 0
+%endif
 m2: db " SI=0x", 0
 m3: db " [END]", 0
     times 510 - ($ - $$) db 0

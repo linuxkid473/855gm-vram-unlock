@@ -15,6 +15,7 @@ are pre-allocated, contiguous and just get their data overwritten.
 """
 import argparse
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -24,7 +25,10 @@ SRC = os.path.join(HERE, "src")
 OUT = os.path.join(HERE, "build")
 
 SECTOR = 512
-STAGE_SECTORS = 40
+STAGE_SECTORS = 56
+HDD_BACKUP_LBA = 60                 # on the internal disk: saved original MBR
+HDD_CONFIG_LBA = 61                 #                       loader config
+HDD_MARK_LBA = 62                   #                       'BVBPHDD1' marker
 PART_LBA = 2048
 IMG_SECTORS = 49152                 # 24 MiB
 PART_SECTORS = IMG_SECTORS - PART_LBA
@@ -103,7 +107,7 @@ def dos_date(y, m, d):
     return ((y - 1980) << 9) | (m << 5) | d
 
 
-def build_files(test):
+def build_files(test, hdd_stage=None, mbr_code=None):
     spaces = lambda n: b" " * n
     counter = (b"0000 boot counter, BeOS VBIOS patch. latest log = RUN(counter mod 4).LOG\n"
                .ljust(SECTOR - 1, b" ") + b"\n")
@@ -117,6 +121,9 @@ def build_files(test):
         files.append(("RUN%d" % i, "LOG", spaces(RUN_SECTORS * SECTOR)))
     files.append(("VBIOS_A", "BIN", bytes(VB_SECTORS * SECTOR)))
     files.append(("VBIOS_B", "BIN", bytes(VB_SECTORS * SECTOR)))
+    files.append(("STAGEHDD", "BIN", hdd_stage or bytes(STAGE_SECTORS * SECTOR)))
+    files.append(("MBRHDD", "BIN", mbr_code or bytes(SECTOR)))
+    files.append(("MBRORIG", "BIN", bytes(SECTOR)))
     if test:
         files.append(("FAKEVB", "BIN", fake_vbios()))
     return files
@@ -239,6 +246,12 @@ def main():
     for i in range(4):
         inc.append("RUN%d_LBA equ %d" % (i, L("RUN%d.LOG" % i)))
     inc.append("FAKEVB_LBA equ %d" % (L("FAKEVB.BIN") if args.test else 0))
+    inc.append("STAGEHDD_LBA equ %d" % L("STAGEHDD.BIN"))
+    inc.append("MBRHDD_LBA equ %d" % L("MBRHDD.BIN"))
+    inc.append("MBRORIG_LBA equ %d" % L("MBRORIG.BIN"))
+    inc.append("HDD_BACKUP_LBA equ %d" % HDD_BACKUP_LBA)
+    inc.append("HDD_CONFIG_LBA equ %d" % HDD_CONFIG_LBA)
+    inc.append("HDD_MARK_LBA equ %d" % HDD_MARK_LBA)
     with open(os.path.join(OUT, "layout.inc"), "w") as f:
         f.write("\n".join(inc) + "\n")
 
@@ -248,11 +261,36 @@ def main():
     run(["nasm", "-f", "bin", "-I", OUT + "/", *flags, os.path.join(SRC, "stage.asm"),
          "-o", os.path.join(OUT, "stage.bin"), "-l", os.path.join(OUT, "stage.lst")])
 
+    run(["nasm", "-f", "bin", "-I", OUT + "/", *flags, "-DHDDMODE", os.path.join(SRC, "stage.asm"),
+         "-o", os.path.join(OUT, "stage_hdd.bin"), "-l", os.path.join(OUT, "stage_hdd.lst")])
+    run(["nasm", "-f", "bin", "-I", OUT + "/", os.path.join(SRC, "mbrhdd.asm"),
+         "-o", os.path.join(OUT, "mbrhdd.bin")])
+
     boot = open(os.path.join(OUT, "boot.bin"), "rb").read()
     stage = open(os.path.join(OUT, "stage.bin"), "rb").read()
+    stage_hdd = open(os.path.join(OUT, "stage_hdd.bin"), "rb").read()
+    mbrhdd = open(os.path.join(OUT, "mbrhdd.bin"), "rb").read()
     assert len(boot) == 512, "boot sector is %d bytes" % len(boot)
     assert len(stage) <= STAGE_SECTORS * SECTOR, \
         "stage is %d bytes, limit %d" % (len(stage), STAGE_SECTORS * SECTOR)
+    assert len(stage_hdd) <= STAGE_SECTORS * SECTOR, "disk loader is %d bytes" % len(stage_hdd)
+    assert len(mbrhdd) == 0x1B8, "disk MBR code is %d bytes (must be exactly 440)" % len(mbrhdd)
+    # the stage's memory (code + data + bss) must leave room for the stack at the top of its 64 KB segment
+    for lst, image in (("stage.lst", stage), ("stage_hdd.lst", stage_hdd)):
+        text = open(os.path.join(OUT, lst)).read()
+        m = re.search(r"B9([0-9A-F]{2})([0-9A-F]{2})\s+mov cx, bss_end - bss_start", text)
+        assert m, "could not find the bss size in " + lst
+        bss_size = int(m.group(2) + m.group(1), 16)
+        bss_end = ((len(image) + 15) // 16) * 16 + bss_size
+        assert bss_end < 0xE000, "%s: stage memory ends at 0x%X, too close to the stack" % (lst, bss_end)
+        print("%s memory: image %d + bss %d = ends at 0x%X (stack at 0xFFF0)" % (lst[:-4], len(image), bss_size, bss_end))
+
+    # now that both images exist, rebuild the FAT volume with the real contents (same sizes, same LBAs)
+    files = build_files(args.test,
+                        hdd_stage=stage_hdd.ljust(STAGE_SECTORS * SECTOR, b"\0"),
+                        mbr_code=mbrhdd.ljust(SECTOR, b"\0"))
+    part, lbas2 = make_fat(files)
+    assert lbas2 == lbas, "file layout changed between passes"
 
     img = bytearray(IMG_SECTORS * SECTOR)
     img[0:512] = boot
@@ -261,7 +299,7 @@ def main():
     name = "usb-test.img" if args.test else "usb.img"
     with open(os.path.join(OUT, name), "wb") as f:
         f.write(img)
-    print("stage: %d bytes (limit %d)" % (len(stage), STAGE_SECTORS * SECTOR))
+    print("stage: %d bytes, disk loader: %d bytes (limit %d each)" % (len(stage), len(stage_hdd), STAGE_SECTORS * SECTOR))
     print("wrote", os.path.join(OUT, name))
 
 

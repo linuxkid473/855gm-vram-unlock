@@ -26,6 +26,9 @@ section .text
 
 ; ===================================================================== entry
 start:
+    jmp short .go
+    db "BVBPSTG1"                   ; signature the disk MBR checks before it jumps here
+.go:
     cli
     mov ax, cs
     mov ds, ax
@@ -34,7 +37,12 @@ start:
     mov sp, 0xFFF0
     sti
     cld
-    mov [boot_drive], dl
+    mov bl, dl                  ; keep the boot drive across the bss clear
+    mov di, bss_start
+    mov cx, bss_end - bss_start
+    xor al, al
+    rep stosb
+    mov [boot_drive], bl
     mov ax, 0x0040
     mov gs, ax
     mov word [vb_seg], 0xC000
@@ -44,6 +52,9 @@ start:
 
     mov dl, [boot_drive]
     call probe_drive
+%ifdef HDDMODE
+    jmp hdd_main
+%endif
     call init_log
 
     SAY "=== BeOS VBIOS patch stage v0.1 ===", 10
@@ -119,6 +130,8 @@ menu:
     SAY " M = memory probe: tell the VBIOS it has VMEM KB of video RAM (restored after)", 10
     SAY " K = SEE IT: full-screen 1024x768x32 bars, GTT filled through the MMIO window", 10
     SAY " Q = state capture: PCI, MMIO, GTT window, aperture in text / stock gfx / raised gfx", 10
+    SAY " I = INSTALL the loader on the internal hard disk (then the stick is not needed)", 10
+    SAY " U = UNINSTALL it again (restores the original boot sector)", 10
     SAY " T = rerun VBE set-mode test  R = reboot", 10
     mov ax, [cfg_auto]
     call wait_key
@@ -165,6 +178,10 @@ menu:
     je .kprobe
     cmp al, 'Q'
     je .qprobe
+    cmp al, 'I'
+    je .hinst
+    cmp al, 'U'
+    je .huninst
     cmp al, 'T'
     je .test
     cmp al, 'R'
@@ -182,6 +199,12 @@ menu:
     jmp menu
 .qprobe:
     call diag_run
+    jmp menu
+.hinst:
+    call hdd_install
+    jmp menu
+.huninst:
+    call hdd_uninstall
     jmp menu
 .go:
     cmp byte [want_patch], 0
@@ -449,11 +472,25 @@ disk_io:
     pusha
     cmp byte [dio_write], 0
     je .rok
+%ifdef HDDMODE
+    jmp .deny                   ; SAFETY: the disk loader never writes anywhere
+%else
     cmp byte [hook_on], 0       ; SAFETY: with the swap hook live, 0x80 is the
     jne .deny                   ; internal disk - never write
     mov al, [cur_drv]
-    cmp al, [boot_drive]        ; SAFETY: never write to any drive but the stick
+    cmp al, [boot_drive]        ; SAFETY: never write to any drive but the stick...
     je .rok
+    cmp byte [hdd_wr_ok], 0     ; ...except inside the installer's window,
+    je .deny
+    cmp al, [tgt]               ; and then only the target disk,
+    jne .deny
+    mov eax, [dio_lba]
+    movzx ecx, word [dio_cnt]
+    add eax, ecx
+    cmp eax, 63                 ; and only its first 63 sectors (MBR + the gap before sector 63)
+    ja .deny
+    jmp .rok
+%endif
 .deny:
     popa
     stc
@@ -1817,11 +1854,13 @@ chainload:
     mov al, [swap]
     call hex8
     call nl
+%ifndef HDDMODE
     mov al, [tgt]
     cmp al, [boot_drive]
     jne .c
     SAY "!! target equals the USB boot drive, refusing", 10
     ret
+%endif
 .c: mov byte [rd_ok], 0
     mov dl, [tgt]
     call probe_drive
@@ -3670,6 +3709,594 @@ log_hdd:
     SAY "  (type 0x07 NTFS, 0x0B/0x0C FAT32, 0xDE Dell utility, 0xEB BeOS, 0x05/0x0F extended)", 10
     ret
 
+; ============================================================ hard-disk loader mode
+; Assembled with -DHDDMODE and installed into sectors 1..STAGE_SECTORS of the internal disk by
+; the stick's installer.  It reads its config from the disk, offers Z (ZETA, patched) / W
+; (Windows, original boot code) and can never write to any disk.
+%ifdef HDDMODE
+hdd_main:
+    mov byte [log_on], 0
+    mov eax, HDD_CONFIG_LBA
+    mov di, cfgbuf
+    call rd_sector
+    jc .nocfg
+    cmp dword [cfgbuf], 'BEOS'
+    jne .nocfg
+    call parse_config
+.nocfg:
+    mov al, [boot_drive]            ; chain the same disk we were loaded from
+    xor ah, ah
+    mov [cfg_bootdrv], ax
+    cmp word [cfg_auto], 0
+    jne .t
+    mov word [cfg_auto], 5
+.t: call a20_setup
+    SAY "855gm-vram-unlock disk loader", 10
+    SAY " Z or Enter = ZETA / BeOS (video patch)     W = Windows", 10
+    SAY " default in "
+    mov ax, [cfg_auto]
+    call dec16
+    SAY " seconds. Hold SHIFT at power-on to skip this loader.", 10
+    mov ax, [cfg_auto]
+    call wait_key
+    cmp al, 'W'
+    je hdd_windows
+    test al, al
+    jnz hdd_zeta
+    cmp word [cfg_bootsel], 1       ; timeout: BOOTSEL=1 makes Windows the default
+    je hdd_windows
+hdd_zeta:
+    cmp word [cfg_patch], 0
+    je .go
+    call vmem_patch
+    jnc .go
+    SAY "!! video patch failed - starting ZETA without it", 10
+.go:
+    mov byte [want_part], 1
+    cmp word [cfg_part], 0
+    jne .p
+    mov word [cfg_part], 9
+.p: call chainload
+    SAY "!! could not start the ZETA partition, falling back to Windows", 10
+hdd_windows:
+    mov dword [dio_lba], HDD_BACKUP_LBA     ; original MBR code ...
+    mov word [dio_cnt], 1
+    mov word [dio_off], 0x7C00
+    mov word [dio_seg], 0
+    mov byte [dio_write], 0
+    call disk_io
+    jc .fail
+    mov eax, 0                              ; ... with the CURRENT partition table
+    mov di, bigbuf
+    call rd_sector
+    jc .fail
+    xor ax, ax
+    mov es, ax
+    mov si, bigbuf + 0x1B8
+    mov di, 0x7C00 + 0x1B8
+    mov cx, 36
+    cld
+    rep movsw
+    push ds
+    pop es
+    xor ax, ax
+    mov fs, ax
+    cmp word [fs:0x7DFE], 0xAA55
+    jne .fail
+    mov dl, [boot_drive]
+    cli
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+    mov sp, 0x7C00
+    xor si, si
+    xor di, di
+    jmp 0x0000:0x7C00
+.fail:
+    SAY "!! the saved original boot sector is unreadable - use the stick", 10
+.h: hlt
+    jmp .h
+
+hdd_install:
+hdd_uninstall:
+    ret
+%endif
+
+; ======================================================== installer (stick only)
+; Writes the loader into sectors 1..62 of the internal disk and swaps the MBR code last.
+; Order: check -> save original MBR on the stick -> write+verify sectors 1..62 -> write+verify
+; the new MBR.  Nothing changes the boot path until the final write, and each step is read back.
+%ifndef HDDMODE
+H_ORIG   equ 0x4000             ; sectors 0..62 read from the disk
+H_STAGE  equ 0x5000             ; loader image (STAGE_SECTORS) read from the stick
+H_RB     equ 0x6000             ; read-back buffer
+H_NEW    equ 0x7000             ; the gap image to write (62 sectors)
+H_MBR    equ 0x8000             ; the new MBR
+GAP_SECT equ 62
+BACK_OFF equ (HDD_BACKUP_LBA - 1) * 512
+CONF_OFF equ (HDD_CONFIG_LBA - 1) * 512
+MARK_OFF equ (HDD_MARK_LBA - 1) * 512
+
+s_install: db "INSTALL", 0
+s_uninst:  db "UNINSTALL", 0
+s_mark:    db "BVBPHDD1"
+
+farcopy:                        ; BX:SI -> DX:DI, CX words
+    push ds
+    push es
+    mov ds, bx
+    mov es, dx
+    cld
+    rep movsw
+    pop es
+    pop ds
+    ret
+
+farzero:                        ; DX:DI, CX words
+    push es
+    mov es, dx
+    xor ax, ax
+    cld
+    rep stosw
+    pop es
+    ret
+
+farcmp:                         ; BX:SI vs DX:DI, CX bytes (CX > 0) -> ZF if equal
+    push ds
+    push es
+    mov ds, bx
+    mov es, dx
+    cld
+    repe cmpsb
+    pop es
+    pop ds
+    ret
+
+stick_rd:                       ; EAX = lba, CX = sectors, BX = segment (offset 0); boot drive
+    mov [dio_lba], eax
+    mov [dio_cnt], cx
+    mov word [dio_off], 0
+    mov [dio_seg], bx
+    mov byte [dio_write], 0
+    jmp disk_io
+
+hdd_target:                     ; the internal disk is 0x81 when the stick is 0x80, else 0x80
+    mov byte [tgt], 0x80
+    cmp byte [boot_drive], 0x80
+    jne .d
+    mov byte [tgt], 0x81
+.d: ret
+
+hdd_io:                         ; EAX = lba, CX = sectors, BX:DI = buffer, [h_wr] = 0/1 -> CF
+    mov [h_lba], eax
+    mov [h_cnt], cx
+    mov [h_seg], bx
+    mov [h_off], di
+    mov byte [h_cf], 1
+    mov dl, [tgt]
+    call probe_drive
+    jc .back
+    mov eax, [h_lba]
+    mov [dio_lba], eax
+    mov ax, [h_cnt]
+    mov [dio_cnt], ax
+    mov ax, [h_off]
+    mov [dio_off], ax
+    mov ax, [h_seg]
+    mov [dio_seg], ax
+    mov al, [h_wr]
+    mov [dio_write], al
+    mov [hdd_wr_ok], al
+    call disk_io
+    jc .back
+    mov byte [h_cf], 0
+.back:
+    mov byte [hdd_wr_ok], 0
+    mov dl, [boot_drive]            ; logging context goes back to the stick
+    call probe_drive
+    cmp byte [h_cf], 0
+    jne .fail
+    clc
+    ret
+.fail:
+    stc
+    ret
+
+confirm_typed:                  ; SI = expected text (uppercase); CF = no match
+    mov di, typebuf
+    xor cx, cx
+.k: xor ax, ax
+    int 0x16
+    cmp al, 0x0D
+    je .done
+    cmp al, 0x08
+    jne .c
+    test cx, cx
+    jz .k
+    dec di
+    dec cx
+    mov al, 8
+    call putc
+    mov al, ' '
+    call putc
+    mov al, 8
+    call putc
+    jmp .k
+.c: cmp al, ' '
+    jb .k
+    cmp cx, 16
+    jae .k
+    cmp al, 'a'
+    jb .u
+    cmp al, 'z'
+    ja .u
+    sub al, 0x20
+.u: mov [di], al
+    inc di
+    inc cx
+    call putc
+    jmp .k
+.done:
+    mov byte [di], 0
+    call nl
+    mov di, typebuf
+.m: mov al, [si]
+    cmp al, [di]
+    jne .no
+    test al, al
+    jz .yes
+    inc si
+    inc di
+    jmp .m
+.yes:
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; checks the sectors read into H_ORIG; sets gap_err (0 = ok) and CF
+hdd_check_gap:
+    push es
+    mov ax, H_ORIG
+    mov es, ax
+    mov byte [gap_err], 1                   ; no MBR signature
+    cmp word [es:0x1FE], 0xAA55
+    jne .out
+    mov byte [gap_err], 2                   ; already installed
+    mov si, s_mark
+    mov di, MARK_OFF + 512
+    mov cx, 8
+    cld
+    repe cmpsb
+    je .out
+    mov byte [gap_err], 3                   ; no partitions
+    xor bx, bx
+    mov cx, 4
+    mov di, 0x1BE
+.p: cmp byte [es:di + 4], 0
+    je .np
+    inc bx
+    mov byte [gap_err], 4                   ; a partition starts inside the gap
+    cmp dword [es:di + 8], 63
+    jb .out
+.np:
+    add di, 16
+    dec cx
+    jnz .p
+    mov byte [gap_err], 3
+    test bx, bx
+    jz .out
+    mov byte [gap_err], 5                   ; gap not empty
+    mov di, 512
+    mov cx, GAP_SECT * 512
+    xor al, al
+    repe scasb
+    jne .out
+    mov byte [gap_err], 0
+.out:
+    pop es
+    cmp byte [gap_err], 0
+    je .ok
+    stc
+    ret
+.ok:
+    clc
+    ret
+
+gap_report:
+    mov al, [gap_err]
+    cmp al, 1
+    jne .2
+    SAY "!! the disk has no valid MBR signature, refusing", 10
+    ret
+.2: cmp al, 2
+    jne .3
+    SAY "!! the loader is already installed here. Use U first if you want to reinstall.", 10
+    ret
+.3: cmp al, 3
+    jne .4
+    SAY "!! the disk's partition table is empty, refusing", 10
+    ret
+.4: cmp al, 4
+    jne .5
+    SAY "!! a partition starts before sector 63, so there is no free gap, refusing", 10
+    ret
+.5: SAY "!! sectors 1-62 are not empty (another boot loader?), refusing to overwrite them", 10
+    ret
+
+hdd_install:
+    SAY "--- INSTALL THE LOADER ON THE INTERNAL HARD DISK ---", 10
+    SAY "Writes the disk's boot area (sectors 0-62) so the video patch runs without this stick.", 10
+    SAY "The original boot sector is saved on the disk AND on the stick (MBRORIG.BIN).", 10
+    SAY "Afterwards: hold SHIFT at power-on to skip the loader; menu key U undoes everything.", 10
+    SAY "Type INSTALL and press Enter (anything else cancels): "
+    mov si, s_install
+    call confirm_typed
+    jnc .go
+    SAY "cancelled, nothing was written", 10
+    ret
+.go:
+    call hdd_target
+    mov byte [h_wr], 0
+    xor eax, eax
+    mov cx, 63
+    mov bx, H_ORIG
+    xor di, di
+    call hdd_io
+    jnc .rd
+    SAY "!! could not read the internal disk, nothing was written", 10
+    ret
+.rd:
+    call hdd_check_gap
+    jnc .ok1
+    call gap_report
+    ret
+.ok1:
+    SAY "disk checks passed: valid MBR, partitions start at or after sector 63, gap is empty", 10
+    mov eax, STAGEHDD_LBA
+    mov cx, STAGE_SECTORS
+    mov bx, H_STAGE
+    call stick_rd
+    jnc .s1
+    SAY "!! could not read the loader image from the stick, nothing was written", 10
+    ret
+.s1:
+    mov eax, MBRHDD_LBA
+    mov cx, 1
+    mov bx, H_MBR
+    call stick_rd
+    jnc .s2
+    SAY "!! could not read the MBR code from the stick, nothing was written", 10
+    ret
+.s2:
+    xor si, si
+    mov bx, H_ORIG
+    mov di, bigbuf
+    mov dx, ds
+    mov cx, 256
+    call farcopy                    ; original MBR -> bigbuf
+    mov eax, MBRORIG_LBA
+    mov di, bigbuf
+    call wr_sector
+    jnc .s3
+    SAY "!! could not save the original MBR on the stick, nothing was written to the disk", 10
+    ret
+.s3:
+    SAY "original MBR saved on the stick", 10
+    xor di, di                      ; build the gap image: zeros + loader + backup + config + marker
+    mov dx, H_NEW
+    mov cx, GAP_SECT * 256
+    call farzero
+    xor si, si
+    mov bx, H_STAGE
+    xor di, di
+    mov dx, H_NEW
+    mov cx, STAGE_SECTORS * 256
+    call farcopy
+    xor si, si
+    mov bx, H_ORIG
+    mov di, BACK_OFF
+    mov dx, H_NEW
+    mov cx, 256
+    call farcopy
+    mov si, cfgbuf
+    mov bx, ds
+    mov di, CONF_OFF
+    mov dx, H_NEW
+    mov cx, 256
+    call farcopy
+    mov si, s_mark
+    mov bx, ds
+    mov di, MARK_OFF
+    mov dx, H_NEW
+    mov cx, 4
+    call farcopy
+    mov byte [h_wr], 1
+    mov eax, 1
+    mov cx, GAP_SECT
+    mov bx, H_NEW
+    xor di, di
+    call hdd_io
+    jnc .w1
+    SAY "!! writing sectors 1-62 failed; the boot sector is unchanged", 10
+    ret
+.w1:
+    mov byte [h_wr], 0
+    mov eax, 1
+    mov cx, GAP_SECT
+    mov bx, H_RB
+    xor di, di
+    call hdd_io
+    jc .rb
+    xor si, si
+    mov bx, H_NEW
+    xor di, di
+    mov dx, H_RB
+    mov cx, GAP_SECT * 512
+    call farcmp
+    je .w1ok
+.rb:
+    SAY "!! read-back of sectors 1-62 differs; the boot sector is unchanged (menu U cleans up)", 10
+    ret
+.w1ok:
+    SAY "loader, saved MBR and config written to sectors 1-62 and verified", 10
+    mov si, 0x1B8                   ; new MBR = our code + the ORIGINAL signature and partition table
+    mov bx, H_ORIG
+    mov di, 0x1B8
+    mov dx, H_MBR
+    mov cx, 36
+    call farcopy
+    push es
+    mov ax, H_MBR
+    mov es, ax
+    cmp word [es:0x1FE], 0xAA55
+    pop es
+    je .sigok
+    SAY "!! internal error: new MBR has no signature, not writing it", 10
+    ret
+.sigok:
+    mov byte [h_wr], 1
+    xor eax, eax
+    mov cx, 1
+    mov bx, H_MBR
+    xor di, di
+    call hdd_io
+    jnc .w2
+    SAY "!! writing the boot sector failed (BIOS virus protection?); the disk boots as before", 10
+    ret
+.w2:
+    mov byte [h_wr], 0
+    xor eax, eax
+    mov cx, 1
+    mov bx, H_RB
+    xor di, di
+    call hdd_io
+    jc .mb
+    xor si, si
+    mov bx, H_MBR
+    xor di, di
+    mov dx, H_RB
+    mov cx, 512
+    call farcmp
+    je .done
+.mb:
+    SAY "!! boot sector read-back differs! Hold SHIFT at power-on, or run U; MBRORIG.BIN has the original", 10
+    ret
+.done:
+    SAY "boot sector written and verified. INSTALLED.", 10
+    SAY "Power off, remove the stick, power on: the loader menu appears. SHIFT skips it.", 10
+    ret
+
+hdd_uninstall:
+    SAY "--- UNINSTALL THE LOADER FROM THE INTERNAL HARD DISK ---", 10
+    SAY "Restores the original boot code (keeping the current partition table) and clears sectors 1-62.", 10
+    SAY "Type UNINSTALL and press Enter (anything else cancels): "
+    mov si, s_uninst
+    call confirm_typed
+    jnc .go
+    SAY "cancelled, nothing was written", 10
+    ret
+.go:
+    call hdd_target
+    mov byte [h_wr], 0
+    xor eax, eax
+    mov cx, 63
+    mov bx, H_ORIG
+    xor di, di
+    call hdd_io
+    jnc .rd
+    SAY "!! could not read the internal disk, nothing was written", 10
+    ret
+.rd:
+    push es
+    mov ax, H_ORIG
+    mov es, ax
+    mov byte [gap_err], 1                   ; 1 = marker missing
+    mov si, s_mark
+    mov di, MARK_OFF + 512
+    mov cx, 8
+    cld
+    repe cmpsb
+    jne .m1
+    mov byte [gap_err], 2                   ; 2 = backup damaged
+    cmp word [es:BACK_OFF + 512 + 510], 0xAA55
+    jne .m1
+    mov byte [gap_err], 0
+.m1:
+    pop es
+    cmp byte [gap_err], 0
+    je .ok1
+    cmp byte [gap_err], 1
+    jne .bk
+    SAY "the loader is not installed here (no marker), nothing to do", 10
+    ret
+.bk:
+    SAY "!! the saved original MBR on the disk is damaged, refusing. Use MBRORIG.BIN from the stick.", 10
+    ret
+.ok1:
+    xor si, si                              ; original code (backup) ...
+    mov bx, H_ORIG
+    mov si, BACK_OFF + 512
+    xor di, di
+    mov dx, H_MBR
+    mov cx, 256
+    call farcopy
+    xor si, si                              ; ... plus the current table
+    mov si, 0x1B8
+    mov bx, H_ORIG
+    mov di, 0x1B8
+    mov dx, H_MBR
+    mov cx, 36
+    call farcopy
+    mov byte [h_wr], 1
+    xor eax, eax
+    mov cx, 1
+    mov bx, H_MBR
+    xor di, di
+    call hdd_io
+    jnc .w1
+    SAY "!! writing the boot sector failed; nothing changed", 10
+    ret
+.w1:
+    mov byte [h_wr], 0
+    xor eax, eax
+    mov cx, 1
+    mov bx, H_RB
+    xor di, di
+    call hdd_io
+    jc .rb1
+    xor si, si
+    mov bx, H_MBR
+    xor di, di
+    mov dx, H_RB
+    mov cx, 512
+    call farcmp
+    je .w1ok
+.rb1:
+    SAY "!! boot sector read-back differs! use MBRORIG.BIN from the stick", 10
+    ret
+.w1ok:
+    SAY "original boot code restored and verified", 10
+    xor di, di
+    mov dx, H_NEW
+    mov cx, GAP_SECT * 256
+    call farzero
+    mov byte [h_wr], 1
+    mov eax, 1
+    mov cx, GAP_SECT
+    mov bx, H_NEW
+    xor di, di
+    call hdd_io
+    jnc .done
+    SAY "(the original boot sector is back; clearing sectors 1-62 failed, which is harmless)", 10
+    ret
+.done:
+    SAY "UNINSTALLED. The disk boots as it did before the install.", 10
+    ret
+%endif
+
 install_hook:
     xor ax, ax
     mov fs, ax
@@ -3779,6 +4406,7 @@ k_part:    db "PART", 0
 ; ===================================================================== bss
 section .bss align=16
 
+bss_start:
 boot_drive: resb 1
 log_on:     resb 1
 pc_ch:      resb 1
@@ -3818,6 +4446,15 @@ p_srcres:   resw 1
 p_count:    resw 1
 p_entry:    resw 1
 rd_ok:      resb 1
+hdd_wr_ok:  resb 1
+h_wr:       resb 1
+h_cf:       resb 1
+gap_err:    resb 1
+h_lba:      resd 1
+h_cnt:      resw 1
+h_seg:      resw 1
+h_off:      resw 1
+typebuf:    resb 20
 part_eff:   resw 1
 want_part:  resb 1
 pbr_lba:    resd 1
@@ -3898,3 +4535,4 @@ modebuf:    resb 256
 pcibuf:     resb 256
 bigbuf:     resb 4096
 gttb1:      resb 4096
+bss_end:

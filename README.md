@@ -73,6 +73,8 @@ python3 tools/setconfig.py PATCH=1 VMEM=4096 SELFTEST=1 BOOTSEL=2   # edit CONFI
 | C / D | patch / no patch, then load a no-emulation El Torito disc ourselves |
 | B | default action per `BOOTSEL` (0 disk, 1 CD, 2 hand-back) |
 | T, M, K, Q | diagnostics: VBE mode test, memory probe, on-screen test pattern, chip state capture |
+| I | **install the loader on the internal hard disk** (see below) |
+| U | uninstall it again (restores the original boot sector) |
 | R | reboot |
 
 ### CONFIG.TXT keys
@@ -82,6 +84,57 @@ full-screen pattern after patching · `BOOTSEL` 0/1/2 · `PART` 0 = MBR, 1-4, or
 `AUTOBOOT` seconds before the default action runs (0 = wait for a key) · `PAUSE` · `TESTSET` · `BOOTDRV` ·
 `MODE`/`SRC`/`BPP` optional mode-table entry rewrite (rarely needed; the memory register was the real fix) ·
 `FAKEVB` test builds only. Edit the file only with `tools/setconfig.py`: it must stay one 512-byte sector in place.
+
+## Run without the stick: install the loader on the hard disk
+
+Optional. The stick's installer (menu key **I**) puts a copy of the loader in the unused sectors in front of
+the first partition (a normal MBR disk leaves sectors 1-62 empty because the first partition starts at 63) and
+replaces the MBR's *boot code* only. After that the machine shows a small menu at power-on:
+
+```
+855gm-vram-unlock disk loader
+ Z or Enter = ZETA / BeOS (video patch)     W = Windows
+ default in 5 seconds. Hold SHIFT at power-on to skip this loader.
+```
+
+**Z** applies the patch and boots the first BeOS-type (0xEB) partition's own boot sector (`PART` selects another);
+**W** boots the original MBR code with the current partition table, unpatched. The loader reads its settings from
+the config the stick had at install time (set `PATCH=1 VMEM=4096 PART=9` first; `AUTOBOOT=0` becomes 5 seconds,
+`BOOTSEL=1` makes Windows the default).
+
+What the install writes (disk layout, sectors):
+
+| sector | content |
+|---|---|
+| 0 | MBR: new boot code (440 bytes) + the disk's **original signature and partition table, byte for byte** |
+| 1-56 | the disk loader (`stage_hdd.bin`) |
+| 60 | a copy of the **original MBR** |
+| 61 | the loader's config |
+| 62 | marker `BVBPHDD1` |
+
+Everything from sector 63 onward is never touched. Order of operations: type `INSTALL` to confirm, check the disk
+(valid MBR, every partition starts at or after sector 63, sectors 1-62 all zero, not already installed), save the
+original MBR to the stick (`MBRORIG.BIN`), write sectors 1-62 and **read them back and compare**, and only then
+write the new MBR and read that back too. Until that last write the disk boots exactly as before, and every
+refusal leaves the disk untouched. During install the stick may write only to sectors 0-62 of the target disk.
+
+**Ways out, in order of how bad things are**
+
+1. Hold **SHIFT** (or Ctrl/Alt) at power-on: the MBR skips the loader and boots the original MBR code.
+2. If the loader sectors cannot be read, or do not carry the loader's signature, the MBR falls back to the original
+   MBR by itself.
+3. Boot the stick and press **U**, type `UNINSTALL`: restores the original code (keeping the *current* partition
+   table) and clears sectors 1-62. The test suite checks the disk is byte-identical afterwards.
+4. Without the stick: restore only the 440 code bytes from the saved copy, e.g. on Linux
+   `dd if=MBRORIG.BIN of=/dev/sdX bs=440 count=1 conv=notrunc` (never write more than 440 bytes: the rest is the
+   partition table), or run `fixmbr` from a Windows XP recovery console.
+
+The disk loader is built from the same source with `-DHDDMODE`: it never writes to any disk (the write path is
+compiled out), does no logging and no diagnostics. If you resize partitions later, keep partition 1 starting at or
+after sector 63 and keep sectors 1-62 free, or uninstall first.
+
+Caveat: some BIOSes have a boot-sector virus warning that blocks writes to sector 0. The installer then reports
+the failure and the disk still boots as before (the earlier sectors are written first).
 
 ## Safety
 
@@ -102,6 +155,9 @@ internal disk / CD and checks: drive-swap hook, E820 trimming (exactly the hidde
 set-mode through, A20 opening after being closed, pixel-exact colour bars through the 4 GB-addressing code, patched
 VBIOS bytes against an independent Python simulation (`tools/vbios_tool.py`), and partition chaining.
 `tools/zeta_qemu.py` boots a real disc image through the stick and screenshots it (it matches an unpatched control).
+`./build.py --test && tools/hdd_test.py` runs the hard-disk loader end to end on a fake disk laid out like a real one: install
+(every byte checked), boot alone, the W path, a read-only disk, fallback from a corrupted loader, SHIFT bypass, uninstall back to a
+byte-identical disk, and refusals (gap not empty, partition inside the gap, already installed, wrong confirmation).
 
 ## Findings that may help others (Intel 855GM, Dell BIOS A07)
 
