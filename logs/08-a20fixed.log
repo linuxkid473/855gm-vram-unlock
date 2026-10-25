@@ -1,0 +1,261 @@
+=== BeOS VBIOS patch stage v0.1 ===
+run #1  log slot 1  boot drive 0x80  int13-ext=01
+config: PATCH=0 MODE=0x00 SRC=0x00 BPP=0 TESTSET=1 AUTOBOOT=0 PAUSE=1 BOOTDRV=0x00 FAKEVB=0 BOOTSEL=0 VMEM=4096
+A20 gate: CLOSED (BIOS boot-from-USB default) - opening it...
+A20 gate: opened through port 0x92
+BIOS date: 09/09/04
+int12 base KB=636  int15/88 ext KB=64512
+E820 memory map:
+  base=0000000000000000 len=000000000009F000 type=1
+  base=000000000009F000 len=0000000000001000 type=2
+  base=0000000000100000 len=000000001FDAA000 type=1
+  base=000000001FEAA000 len=0000000000056000 type=2
+  base=000000001FF00000 len=0000000000100000 type=2
+  base=00000000FEC10000 len=0000000000010000 type=2
+  base=00000000FEDA0000 len=0000000000060000 type=2
+  base=00000000FFB00000 len=0000000000500000 type=2
+disks:
+  drv 0x80 heads=255 spt=63 maxcyl=1023 count=2 sectors=0x0000000003957000 bps=512
+  drv 0x81 heads=255 spt=63 maxcyl=1023 count=2 sectors=0x0000000006FC7C80 bps=512
+CD/DVD:
+  no CD/DVD drive found with a readable disc
+PCI bus 0:
+  00:00.0 8086:3580 class=0600
+  00:02.0 8086:3582 class=0300
+  00:1D.0 8086:24C2 class=0C03
+  00:1E.0 8086:2448 class=0604
+  00:1F.0 8086:24CC class=0601
+PCI config space 00:00.00
+  0000: 86 80 80 35 06 01 90 20 02 00 00 06 00 00 80 00 
+  0010: 08 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  0020: 00 00 00 00 00 00 00 00 00 00 00 00 28 10 64 01 
+  0030: 00 00 00 00 40 00 00 00 00 00 00 00 00 00 00 00 
+  0040: 09 00 05 81 00 00 00 00 00 00 C1 FE 02 28 00 0E 
+  0050: 00 01 14 00 00 00 00 00 00 10 11 11 00 00 00 00 
+  0060: 0A B8 80 00 00 00 08 00 00 00 00 00 00 00 00 00 
+  0070: 02 09 00 00 54 60 00 02 00 00 00 00 00 00 00 00 
+  0080: 02 00 00 66 00 00 00 00 00 00 00 00 00 00 00 00 
+  0090: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  00A0: 02 00 20 00 17 02 00 1F 00 00 00 00 00 00 00 00 
+  00B0: 00 00 F0 E9 00 00 00 00 00 00 00 00 00 00 00 00 
+  00C0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  00D0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  00E0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  00F0: 00 00 00 00 00 00 00 00 00 00 02 00 06 01 00 00 
+PCI config space 00:02.00
+  0000: 86 80 82 35 07 00 90 00 02 00 00 03 00 00 80 00 
+  0010: 08 00 00 F0 00 00 F8 FA 01 C0 00 00 00 00 00 00 
+  0020: 00 00 00 00 00 00 00 00 00 00 00 00 28 10 64 01 
+  0030: 00 00 00 00 D0 00 00 00 00 00 00 00 0B 01 00 00 
+  0040: 09 00 05 81 00 40 00 00 00 00 00 00 00 00 00 00 
+  0050: 00 01 14 00 00 00 00 00 00 00 02 00 00 00 00 00 
+  0060: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  0070: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  0080: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  0090: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  00A0: FF A2 0A 30 00 00 00 00 CC 19 08 00 82 8C 57 00 
+  00B0: 00 00 00 00 00 00 00 00 EA F3 0F 00 24 4B E2 07 
+  00C0: 07 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  00D0: 01 00 21 02 00 00 00 00 08 C3 00 FF 25 00 00 00 
+  00E0: 2A 00 1B 00 DA 00 1B 00 00 00 00 22 00 04 00 00 
+  00F0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+PCI config space 00:02.01
+  0000: 86 80 82 35 07 00 90 00 02 00 80 03 00 00 80 00 
+  0010: 08 00 00 E8 00 00 F0 FA 00 00 00 00 00 00 00 00 
+  0020: 00 00 00 00 00 00 00 00 00 00 00 00 28 10 64 01 
+  0030: 00 00 00 00 D0 00 00 00 00 00 00 00 00 00 00 00 
+  0040: 09 00 05 81 00 40 00 00 00 00 00 00 00 00 00 00 
+  0050: 00 01 14 00 00 00 00 00 00 00 02 00 00 00 00 00 
+  0060: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  0070: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  0080: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  0090: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  00A0: FF A2 0A 30 00 80 03 24 6E 35 0A 00 2D 8F 6A 00 
+  00B0: 00 00 00 00 00 00 00 00 7A 57 12 00 9B 38 63 09 
+  00C0: 07 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+  00D0: 01 00 21 02 00 00 00 00 08 C3 00 FF 25 00 00 00 
+  00E0: 2A 00 1B 00 DA 00 9B 00 00 00 00 22 00 04 00 00 
+  00F0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+VBIOS at segment 0xC000: signature=55AA size=108 x512  checksum32k=0x0031B2BA
+PAM regs 0x59..0x5F: 10 11 11 00 00 00 00 
+VBIOS header:
+  0000: 55 AA 6C E9 CB BF 30 30 30 30 30 30 30 30 30 30 
+  0010: 30 30 0C 1F E9 19 1E CC 40 00 20 0B 30 30 49 42 
+  0020: 4D 20 56 47 41 20 43 6F 6D 70 61 74 69 62 6C 65 
+  0030: 20 42 49 4F 53 2E 20 03 5B 00 6B 00 79 00 8B C0 
+dumping VBIOS to file (lba 00000A89)
+  dump ok
+mode table at VBIOS+0x029F, 39 entries (mode, bpp, record offset, unknown, record bytes, type1 WxH):
+  mode 0x30 bpp 8 rec@0x0137 unk 0x03  rec: D6 09 80 90 20 E0 1D 10  640x480
+  mode 0x32 bpp 8 rec@0x016D unk 0x06  rec: A0 0F 20 00 31 58 1C 20  800x600
+  mode 0x34 bpp 8 rec@0x01A3 unk 0x09  rec: 64 19 00 40 41 00 26 30  1024x768
+  mode 0x38 bpp 8 rec@0x01D9 unk 0x0F  rec: 30 2A 00 98 51 00 2A 40  1280x1024
+  mode 0x3A bpp 8 rec@0x020F unk 0x12  rec: 48 3F 40 30 62 B0 32 40  1600x1200
+  mode 0x3C bpp 8 rec@0x0245 unk 0x15  rec: 68 5B 80 A8 72 A0 3C 50  1920x1440
+  mode 0x41 bpp 16 rec@0x0137 unk 0x04  rec: D6 09 80 90 20 E0 1D 10  640x480
+  mode 0x43 bpp 16 rec@0x016D unk 0x07  rec: A0 0F 20 00 31 58 1C 20  800x600
+  mode 0x45 bpp 16 rec@0x01A3 unk 0x0A  rec: 64 19 00 40 41 00 26 30  1024x768
+  mode 0x49 bpp 16 rec@0x01D9 unk 0x10  rec: 30 2A 00 98 51 00 2A 40  1280x1024
+  mode 0x4B bpp 16 rec@0x020F unk 0x13  rec: 48 3F 40 30 62 B0 32 40  1600x1200
+  mode 0x4D bpp 16 rec@0x0245 unk 0x16  rec: 68 5B 80 A8 72 A0 3C 50  1920x1440
+  mode 0x50 bpp 32 rec@0x0137 unk 0x05  rec: D6 09 80 90 20 E0 1D 10  640x480
+  mode 0x52 bpp 32 rec@0x016D unk 0x08  rec: A0 0F 20 00 31 58 1C 20  800x600
+  mode 0x54 bpp 32 rec@0x01A3 unk 0x0B  rec: 64 19 00 40 41 00 26 30  1024x768
+  mode 0x58 bpp 32 rec@0x01D9 unk 0x11  rec: 30 2A 00 98 51 00 2A 40  1280x1024
+  mode 0x5A bpp 32 rec@0x020F unk 0x14  rec: 48 3F 40 30 62 B0 32 40  1600x1200
+  mode 0x5C bpp 32 rec@0x0245 unk 0x17  rec: 68 5B 80 A8 72 A0 3C 50  1920x1440
+  mode 0x60 bpp 8 rec@0x1299 unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x61 bpp 16 rec@0x1299 unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x62 bpp 32 rec@0x1299 unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x63 bpp 8 rec@0x12B3 unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x64 bpp 16 rec@0x12B3 unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x65 bpp 32 rec@0x12B3 unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x66 bpp 8 rec@0x12CD unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x67 bpp 16 rec@0x12CD unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x68 bpp 32 rec@0x12CD unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x69 bpp 8 rec@0x12E7 unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x6A bpp 16 rec@0x12E7 unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x6B bpp 32 rec@0x12E7 unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x6C bpp 8 rec@0x1301 unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x6D bpp 16 rec@0x1301 unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x6E bpp 32 rec@0x1301 unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x6F bpp 8 rec@0x131B unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x70 bpp 16 rec@0x131B unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x71 bpp 32 rec@0x131B unk 0x00  rec: 00 00 00 00 00 00 07 3C  0x768
+  mode 0x7C bpp 8 rec@0x0269 unk 0x0C  rec: 00 00 00 00 00 00 00 00  0x0
+  mode 0x7D bpp 16 rec@0x0269 unk 0x0D  rec: 00 00 00 00 00 00 00 00  0x0
+  mode 0x7E bpp 32 rec@0x0269 unk 0x0E  rec: 00 00 00 00 00 00 00 00  0x0
+VBE controller info:
+  sig=VESA version=0x0300 caps=0x00000001 mem=832 KB
+  oem: Intel(r)852GM/852GME/855GM/855GME Graphics Chip Accelerated VGA
+  vendor: Intel Corporation  product: Intel(r)852GM/852GME/855GM/855GME Graphics Controller
+  39 modes:
+  0x0160 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0161 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0162 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0163 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0164 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0165 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0166 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0167 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0168 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0169 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x016A 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x016B 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x016C 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x016D 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x016E 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x016F 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0170 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0171 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x017C 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x017D 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x017E 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x013C 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x014D 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x015C 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x013A 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x014B 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x015A 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0107 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x011A 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x011B 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0105 1024x768x8 attr=0x009B pitch=1024 model=4 lfb=0xF0000000
+  0x0117 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0118 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0112 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0114 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0115 0x0x0 attr=0x0000 pitch=0 model=0 lfb=0x00000000 (unsupported)
+  0x0101 640x480x8 attr=0x009B pitch=640 model=4 lfb=0xF0000000
+  0x0103 800x600x8 attr=0x009B pitch=800 model=4 lfb=0xF0000000
+  0x0111 640x480x16 attr=0x009B pitch=1280 model=6 lfb=0xF0000000
+VBE set-mode test (each 1024x768 mode, plain then LFB bit):
+  try mode 0x0105
+    set AX=0x004F current=0x0105
+  try mode 0x4105
+    set AX=0x004F current=0x4105
+
+=== MENU ===
+ H = boot internal HARD DISK (PATCH=0, no patch)
+ C = boot CD/DVD (El Torito) (PATCH=0, no patch)
+ N = hard disk, NO patch      D = CD/DVD, NO patch
+ B = default per BOOTSEL (now hard disk)
+ X = patch, then hand back to BIOS (INT 18h: next device in boot order)
+ Y = same as X without the patch
+ M = memory probe: tell the VBIOS it has VMEM KB of video RAM (restored after)
+ K = SEE IT: 1024x768x32 colour bars, then remap the GTT to real RAM (restored after)
+ A = aperture test: write magics through the aperture, find where they land (text only)
+ G = old experiment (BLANKS THE SCREEN - do not use)
+ T = rerun VBE set-mode test  R = reboot
+--- APERTURE MAPPING TEST ---
+unreal mode self-test: F000:0010=20383839 flat 0xF0010=20383839 flat 1MB=00000000  OK (A20 open)
+aperture BAR0 = 0xF0000000
+GTT at 0x1FFE0000 as the BIOS left it (graphics mode not yet set):
+  GTT entries valid in first 1024: 1024, first invalid index: none
+  GTT[0] = 0xFFFFFFFF
+  GTT[1] = 0xFFFFFFFF
+  GTT[2] = 0xFFFFFFFF
+  GTT[3] = 0xFFFFFFFF
+  GTT[100] = 0xFFFFFFFF
+  GTT[205] = 0xFFFFFFFF
+  GTT[206] = 0xFFFFFFFF
+  GTT[207] = 0xFFFFFFFF
+  GTT[208] = 0xFFFFFFFF
+  GTT[209] = 0xFFFFFFFF
+  GTT[210] = 0xFFFFFFFF
+  GTT[255] = 0xFFFFFFFF
+  GTT[256] = 0xFFFFFFFF
+  GTT[511] = 0xFFFFFFFF
+  GTT[512] = 0xFFFFFFFF
+  GTT[767] = 0xFFFFFFFF
+  GTT[768] = 0xFFFFFFFF
+  GTT[1023] = 0xFFFFFFFF
+VBIOS memory word raised; next: set VBE 0x4118, run two passes (scans all RAM, a few seconds)
+text mode back, VBIOS memory word restored, VBE set-mode AX=0x004F
+pass 1: GTT exactly as the BIOS left it, graphics mode active
+  aperture offset / wrote / read back through the aperture:
+    0x00000000  wrote 0xC0DE0000  read 0xF000EEC2
+    0x00001000  wrote 0xC0DE0001  read 0xF000EEC2
+    0x00064000  wrote 0xC0DE0002  read 0xF000EEC2
+    0x000CF000  wrote 0xC0DE0003  read 0xF000EEC2
+    0x000D0000  wrote 0xC0DE0004  read 0xF000EEC2
+    0x000E0000  wrote 0xC0DE0005  read 0xF000EEC2
+    0x000F0000  wrote 0xC0DE0006  read 0xF000EEC2
+    0x000FF000  wrote 0xC0DE0007  read 0xF000EEC2
+    0x00100000  wrote 0xC0DE0008  read 0xF000EEC2
+    0x00180000  wrote 0xC0DE0009  read 0xF000EEC2
+    0x002F0000  wrote 0xC0DE000A  read 0xF000EEC2
+    0x002FF000  wrote 0xC0DE000B  read 0xF000EEC2
+  tags found in physical memory (stolen 0x1FF00000+, block 0x1D000000+):
+    none
+pass 2: GTT[256..767] -> RAM block 0x1D000000, PGTBL_CTL rewritten
+  aperture offset / wrote / read back through the aperture:
+    0x00000000  wrote 0xC0DE0100  read 0xF000EEC2
+    0x00001000  wrote 0xC0DE0101  read 0xF000EEC2
+    0x00064000  wrote 0xC0DE0102  read 0xF000EEC2
+    0x000CF000  wrote 0xC0DE0103  read 0xF000EEC2
+    0x000D0000  wrote 0xC0DE0104  read 0xF000EEC2
+    0x000E0000  wrote 0xC0DE0105  read 0xF000EEC2
+    0x000F0000  wrote 0xC0DE0106  read 0xF000EEC2
+    0x000FF000  wrote 0xC0DE0107  read 0xF000EEC2
+    0x00100000  wrote 0xC0DE0108  read 0xF000EEC2
+    0x00180000  wrote 0xC0DE0109  read 0xF000EEC2
+    0x002F0000  wrote 0xC0DE010A  read 0xF000EEC2
+    0x002FF000  wrote 0xC0DE010B  read 0xF000EEC2
+  tags found in physical memory (stolen 0x1FF00000+, block 0x1D000000+):
+    none
+GTT[256..767] restored to 0xA5A5A5A5
+aperture test over - press R to reboot
+
+=== MENU ===
+ H = boot internal HARD DISK (PATCH=0, no patch)
+ C = boot CD/DVD (El Torito) (PATCH=0, no patch)
+ N = hard disk, NO patch      D = CD/DVD, NO patch
+ B = default per BOOTSEL (now hard disk)
+ X = patch, then hand back to BIOS (INT 18h: next device in boot order)
+ Y = same as X without the patch
+ M = memory probe: tell the VBIOS it has VMEM KB of video RAM (restored after)
+ K = SEE IT: 1024x768x32 colour bars, then remap the GTT to real RAM (restored after)
+ A = aperture test: write magics through the aperture, find where they land (text only)
+ G = old experiment (BLANKS THE SCREEN - do not use)
+ T = rerun VBE set-mode test  R = reboot
