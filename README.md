@@ -113,7 +113,7 @@ What the install writes (disk layout, sectors):
 | 62 | marker `BVBPHDD1` |
 
 Everything from sector 63 onward is never touched. Order of operations: type `INSTALL` to confirm, check the disk
-(valid MBR, every partition starts at or after sector 63, sectors 1-62 all zero, not already installed), save the
+(valid MBR, every partition starts at or after sector 63, not already installed; if sectors 1-62 are not all zero it lists them with their first bytes, saves them to the stick as `GAPBACK.BIN`, and goes on only if you type `OVERWRITE`), save the
 original MBR to the stick (`MBRORIG.BIN`), write sectors 1-62 and **read them back and compare**, and only then
 write the new MBR and read that back too. Until that last write the disk boots exactly as before, and every
 refusal leaves the disk untouched. During install the stick may write only to sectors 0-62 of the target disk.

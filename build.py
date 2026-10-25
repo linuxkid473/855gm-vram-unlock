@@ -124,6 +124,7 @@ def build_files(test, hdd_stage=None, mbr_code=None):
     files.append(("STAGEHDD", "BIN", hdd_stage or bytes(STAGE_SECTORS * SECTOR)))
     files.append(("MBRHDD", "BIN", mbr_code or bytes(SECTOR)))
     files.append(("MBRORIG", "BIN", bytes(SECTOR)))
+    files.append(("GAPBACK", "BIN", bytes(62 * SECTOR)))
     if test:
         files.append(("FAKEVB", "BIN", fake_vbios()))
     return files
@@ -249,6 +250,7 @@ def main():
     inc.append("STAGEHDD_LBA equ %d" % L("STAGEHDD.BIN"))
     inc.append("MBRHDD_LBA equ %d" % L("MBRHDD.BIN"))
     inc.append("MBRORIG_LBA equ %d" % L("MBRORIG.BIN"))
+    inc.append("GAPBACK_LBA equ %d" % L("GAPBACK.BIN"))
     inc.append("HDD_BACKUP_LBA equ %d" % HDD_BACKUP_LBA)
     inc.append("HDD_CONFIG_LBA equ %d" % HDD_CONFIG_LBA)
     inc.append("HDD_MARK_LBA equ %d" % HDD_MARK_LBA)

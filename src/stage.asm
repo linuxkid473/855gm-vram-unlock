@@ -3777,7 +3777,7 @@ log_gap:
 .ld:
     call nl
     xor si, si                      ; dump the first 4 non-empty sectors: hex, then text
-.d: cmp si, 4
+.d: cmp si, 8
     jae .done
     movzx bx, byte [nz_n]
     cmp si, bx
@@ -4141,6 +4141,112 @@ gap_report:
 .5: SAY "!! sectors 1-62 are not empty (another boot loader?), refusing to overwrite them", 10
     ret
 
+s_overwrite: db "OVERWRITE", 0
+
+; Sectors 1-62 are not empty. Show what is in them, save them to the stick, and only go on
+; if the user types OVERWRITE. (CF = do not continue.)
+gap_override:
+    mov byte [nz_n], 0
+    push es
+    mov ax, H_ORIG
+    mov es, ax
+    mov bx, 1
+    mov di, 512
+    cld
+.s: push di
+    mov cx, 512
+    xor al, al
+    repe scasb
+    pop di
+    je .z
+    movzx si, byte [nz_n]
+    cmp si, 62
+    jae .z
+    mov [nz_list + si], bl
+    inc byte [nz_n]
+.z: add di, 512
+    inc bx
+    cmp bx, 63
+    jb .s
+    pop es
+    SAY "sectors 1-62 are not empty: "
+    movzx ax, byte [nz_n]
+    call dec16
+    SAY " of them hold data (leftovers of an old filesystem, or another boot loader?).", 10
+    SAY "First bytes of each:", 10
+    xor si, si
+.l: movzx bx, byte [nz_n]
+    cmp si, bx
+    jae .ld
+    cmp si, 14
+    jae .more
+    push si
+    SAY "  LBA "
+    movzx ax, byte [nz_list + si]
+    call dec16
+    SAY ": "
+    movzx ax, byte [nz_list + si]
+    shl ax, 9
+    mov si, ax
+    mov bx, H_ORIG
+    mov di, bigbuf
+    mov dx, ds
+    mov cx, 4
+    call farcopy
+    mov si, bigbuf
+    mov cx, 8
+.h: lodsb
+    call hex8
+    mov al, ' '
+    call putc
+    dec cx
+    jnz .h
+    mov al, ' '
+    call putc
+    mov si, bigbuf
+    mov cx, 8
+.t: lodsb
+    cmp al, 32
+    jb .dot
+    cmp al, 126
+    jbe .p
+.dot:
+    mov al, '.'
+.p: call putc
+    dec cx
+    jnz .t
+    call nl
+    pop si
+    inc si
+    jmp .l
+.more:
+    SAY "  ...", 10
+.ld:
+    SAY "They are copied to the stick first (GAPBACK.BIN) and only then overwritten.", 10
+    SAY "Type OVERWRITE and press Enter to continue (anything else cancels): "
+    mov si, s_overwrite
+    call confirm_typed
+    jnc .go
+    SAY "cancelled, nothing was written", 10
+    stc
+    ret
+.go:
+    mov eax, GAPBACK_LBA            ; stick file <- H_ORIG sectors 1..62
+    mov [dio_lba], eax
+    mov word [dio_cnt], 62
+    mov word [dio_off], 512
+    mov word [dio_seg], H_ORIG
+    mov byte [dio_write], 1
+    call disk_io
+    jnc .saved
+    SAY "!! could not save the old sectors to the stick, nothing was written", 10
+    stc
+    ret
+.saved:
+    SAY "old sectors 1-62 saved on the stick (GAPBACK.BIN)", 10
+    clc
+    ret
+
 hdd_install:
     SAY "--- INSTALL THE LOADER ON THE INTERNAL HARD DISK ---", 10
     SAY "Writes the disk's boot area (sectors 0-62) so the video patch runs without this stick.", 10
@@ -4166,10 +4272,16 @@ hdd_install:
 .rd:
     call hdd_check_gap
     jnc .ok1
+    cmp byte [gap_err], 5
+    je .leftover
     call gap_report
     ret
+.leftover:
+    call gap_override
+    jnc .ok1
+    ret
 .ok1:
-    SAY "disk checks passed: valid MBR, partitions start at or after sector 63, gap is empty", 10
+    SAY "disk checks passed: valid MBR, partitions start at or after sector 63", 10
     mov eax, STAGEHDD_LBA
     mov cx, STAGE_SECTORS
     mov bx, H_STAGE

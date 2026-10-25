@@ -221,7 +221,6 @@ def main():
     # --------------------------------------------------------------- refusals
     print("== refusals")
     cases = [
-        ("gap not empty (another boot loader)", dict(gap_junk=True), "install\n", "not empty"),
         ("partition inside the gap", dict(p1_start=32), "install\n", "before sector 63"),
     ]
     for name, kw, word, expect in cases:
@@ -232,10 +231,30 @@ def main():
         text = run_qemu([st, p], [(14, "sendkey i")] + typed(16, word), 26)
         check("refuses: " + name, expect in text)
         check("   disk unchanged", open(p, "rb").read() == before)
-        if "gap_junk" in kw:
-            lg = stick_log(st)
-            check("   log lists the non-empty gap sector (LBA 5) with its contents",
-                  "1 not empty - LBA: 5" in lg and "GRUB-STAGE-1.5!!" in lg)
+
+    # non-empty gap: lists it, asks for OVERWRITE; declining leaves the disk alone, accepting backs it up first
+    print("== non-empty gap (leftovers)")
+    p = os.path.join(WORK, "junk.img")
+    before = make_disk(p, gap_junk=True)
+    st = os.path.join(WORK, "stick4.img")
+    shutil.copy(stick, st)
+    text = run_qemu([st, p], [(14, "sendkey i")] + typed(16, "install\n") + typed(19, "nope\n"), 28)
+    check("non-empty gap is listed with its first bytes (installer output in the stick log)",
+          "LBA 5:" in stick_log(st) and "GRUB-STAG" in stick_log(st))
+    check("declining OVERWRITE cancels", "cancelled" in text)
+    check("   disk unchanged", open(p, "rb").read() == before)
+    check("   stick log shows the gap dump", "1 not empty - LBA: 5" in stick_log(st) and "GRUB-STAGE-1.5!!" in stick_log(st))
+    p2 = os.path.join(WORK, "junk2.img")
+    shutil.copy(os.path.join(WORK, "junk.img"), p2)
+    st2 = os.path.join(WORK, "stick5.img")
+    shutil.copy(stick, st2)
+    text = run_qemu([st2, p2], [(14, "sendkey i")] + typed(16, "install\n") + typed(19, "overwrite\n"), 36)
+    d2 = open(p2, "rb").read()
+    check("typing OVERWRITE installs", "INSTALLED" in text and d2[:0x1B8] == mbrhdd)
+    gb = fatimg.read_files(bytearray(open(st2, "rb").read()))["GAPBACK.BIN"]
+    check("the old sectors 1-62 were saved on the stick first (GAPBACK.BIN)", gb[:62 * SECT] == before[SECT:63 * SECT])
+    check("partition table still byte-identical", d2[0x1B8:512] == before[0x1B8:512])
+    check("nothing after sector 62 touched", d2[63 * SECT:] == before[63 * SECT:])
     p = os.path.join(WORK, "refuse.img")
     shutil.copy(os.path.join(WORK, "installed.img"), p)
     text = run_qemu([stick, p], [(14, "sendkey i")] + typed(16, "install\n"), 26)
