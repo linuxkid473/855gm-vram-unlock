@@ -188,6 +188,53 @@ def main():
     check("the disk loader never wrote to the disk (image identical after boots)",
           open(os.path.join(WORK, "installed.img"), "rb").read() == installed)
 
+    # ------------------------------------------------- partition picker (3 systems + a 2nd BeOS)
+    print("== partition picker")
+    pick = bytearray(installed)
+    pick[0x1BE:0x1CE] = entry(0x80, 0x07, 63, 20000)        # 1 Windows (active)
+    pick[0x1CE:0x1DE] = entry(0x00, 0xEB, 30000, 20000)     # 2 ZETA
+    pick[0x1DE:0x1EE] = entry(0x00, 0xAF, 40000, 10000)     # 3 Mac OS X
+    pick[0x1EE:0x1FE] = entry(0x00, 0xEB, 45000, 10000)     # 4 a second BeOS-type partition
+    for lba in (40000, 45000):
+        pick[lba * SECT:(lba + 1) * SECT] = nasm("fakepbr.asm")
+    pickp = os.path.join(WORK, "pick.img")
+    open(pickp, "wb").write(pick)
+
+    def pick_run(key, total=14):
+        steps = [(3.5, "sendkey " + key)] if key else []
+        return run_qemu([pickp], steps, total)
+
+    text = pick_run(None, 20)
+    check("menu lists Windows, ZETA / BeOS and Mac OS X with sizes",
+          "1) Windows" in text and "2) ZETA / BeOS" in text and "3) Mac OS X" in text and "4) ZETA / BeOS" in text
+          and "(active)" in text and "9 MB" in text)
+    check("timeout still boots the first BeOS partition (BOOTSEL=0)", "SI=0x07CE" in text)
+    text = pick_run("t")
+    check("T boots the Mac OS X partition (entry 3)", "FAKE-PBR reached, DL=0x80" in text and "SI=0x07DE" in text)
+    check("T applied the video patch", "memory-map hook installed" in text or "video RAM block" in text)
+    text = pick_run("4")
+    check("4 boots the SECOND BeOS-type partition (not the top one)", "SI=0x07EE" in text)
+    text = pick_run("3")
+    check("3 boots the Mac OS X partition by number", "SI=0x07DE" in text)
+    text = pick_run("2")
+    check("2 boots the first BeOS partition", "SI=0x07CE" in text)
+    text = pick_run("z")
+    check("Z boots the first BeOS partition", "SI=0x07CE" in text)
+    text = pick_run("1")
+    check("1 boots the Windows partition directly", "FAKE-XP PBR reached, DL=0x80" in text and "SI=0x07BE" in text)
+    check("1 does not apply the video patch", "memory-map hook installed" not in text and "video RAM block" not in text)
+    pick2 = bytearray(pick)
+    pick2[0x1DE:0x1EE] = bytes(16)
+    pick2p = os.path.join(WORK, "pick2.img")
+    open(pick2p, "wb").write(pick2)
+    text = run_qemu([pick2p], [(3.5, "sendkey 3")], 12)
+    check("choosing an empty slot is refused and the loader keeps waiting", "that slot is empty" in text
+          and "FAKE-PBR reached" not in text)
+    text = run_qemu([pick2p], [(3.5, "sendkey t")], 12)
+    check("T with no Mac OS X partition falls back to Windows instead of hanging",
+          "no BeOS (0xEB) / Mac OS X (0xAF) partition" in text and "FAKE-XP PBR reached" in text)
+    check("picker boots never wrote to the disk", open(pickp, "rb").read() == bytes(pick))
+
     # --------------------------------------------------------------- fallback
     print("== fallback: loader sectors corrupted")
     bad = bytearray(installed)

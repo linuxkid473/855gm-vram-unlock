@@ -1946,16 +1946,24 @@ load_part_pbr:                  ; CF on failure (message already printed)
     mov fs, ax
     mov ax, [cfg_part]
     cmp ax, 9
+    je .bytype
+    cmp ax, 10
     jne .fixed
-    mov cx, 1                   ; PART=9: first partition whose type is 0xEB (BeOS / BFS)
+.bytype:
+    mov dl, 0xEB                ; PART=9: first partition whose type is 0xEB (BeOS / BFS)
+    cmp ax, 10
+    jne .t1
+    mov dl, 0xAF                ; PART=10: first partition of type 0xAF (Mac OS X / HFS+)
+.t1:
+    mov cx, 1
     mov bx, 0x0600 + 0x1BE
-.s: cmp byte [fs:bx + 4], 0xEB
+.s: cmp byte [fs:bx + 4], dl
     je .found
     add bx, 16
     inc cx
     cmp cx, 4
     jbe .s
-    SAY "!! PART=9: no BeOS (type 0xEB) partition in the MBR", 10
+    SAY "!! PART=9/10: no BeOS (0xEB) / Mac OS X (0xAF) partition in the MBR", 10
     stc
     ret
 .found:
@@ -3847,32 +3855,165 @@ hdd_main:
     mov word [cfg_auto], 5
 .t: call a20_setup
     SAY "855gm-vram-unlock disk loader", 10
-    SAY " Z or Enter = ZETA / BeOS (video patch)     W = Windows", 10
-    SAY " default in "
+    xor eax, eax                    ; the partition table lives in sector 0 (kept by the hybrid MBR)
+    mov di, bigbuf
+    call rd_sector
+    jc .nolist
+    cmp word [bigbuf + 510], 0xAA55
+    jne .nolist
+    call hdd_list
+.nolist:
+    SAY " 1-4 = boot that partition      Z = ZETA / BeOS    T = Mac OS X    W = Windows", 10
+    SAY " Enter or wait "
     mov ax, [cfg_auto]
     call dec16
-    SAY " seconds. Hold SHIFT at power-on to skip this loader.", 10
+    SAY " s = default. Hold SHIFT at power-on to skip this loader.", 10
     mov ax, [cfg_auto]
-    call wait_key
+.k: call wait_key
     cmp al, 'W'
     je hdd_windows
+    cmp al, 'Z'
+    je hdd_zeta
+    cmp al, 'T'
+    je hdd_mac
     test al, al
-    jnz hdd_zeta
-    cmp word [cfg_bootsel], 1       ; timeout: BOOTSEL=1 makes Windows the default
+    jz hdd_default                  ; timeout
+    cmp al, 13
+    je hdd_default
+    cmp al, '1'
+    jb .u
+    cmp al, '4'
+    ja .u
+    sub al, '0'
+    movzx bx, al
+    mov [mn_part], bx
+    dec bx
+    shl bx, 4
+    add bx, bigbuf + 0x1BE
+    mov al, [bx + 4]                ; the slot's partition type
+    test al, al
+    jnz .have
+    SAY " that slot is empty - choose again", 10
+    jmp short .u
+.have:
+    call hdd_is_win
+    jne hdd_pick_patched
+    mov byte [mn_patch], 0          ; Windows-type partition: boot it as is
+    call hdd_boot
+    jmp hdd_windows
+.u: xor ax, ax                      ; any other key: stop the countdown and ask again
+    jmp .k
+
+hdd_default:                        ; BOOTSEL: 0 = ZETA, 1 = Windows, 2 = Mac OS X
+    cmp word [cfg_bootsel], 1
     je hdd_windows
+    cmp word [cfg_bootsel], 2
+    je hdd_mac
 hdd_zeta:
+    mov ax, [cfg_part]
+    test ax, ax
+    jnz .p
+    mov ax, 9
+.p: mov [mn_part], ax
+    jmp short hdd_pick_patched
+hdd_mac:
+    mov word [mn_part], 10
+hdd_pick_patched:
+    mov byte [mn_patch], 1
+    call hdd_boot
+    jmp hdd_windows
+
+; Boot partition [mn_part] (1-4, 9 = first 0xEB, 10 = first 0xAF), applying the video patch first
+; when [mn_patch] is set.  Returns only if the partition could not be started.
+hdd_boot:
+    cmp byte [mn_patch], 0
+    je .go
     cmp word [cfg_patch], 0
     je .go
     call vmem_patch
     jnc .go
-    SAY "!! video patch failed - starting ZETA without it", 10
+    SAY "!! video patch failed - starting without it", 10
 .go:
     mov byte [want_part], 1
-    cmp word [cfg_part], 0
+    mov ax, [mn_part]
+    mov [cfg_part], ax
+    call chainload
+    SAY "!! could not start that partition, falling back to Windows", 10
+    ret
+
+; Z flag set if partition type AL is a Windows (FAT/NTFS) type.
+hdd_is_win:
+    cmp al, 0x07
+    je .y
+    cmp al, 0x17
+    je .y
+    cmp al, 0x0B
+    je .y
+    cmp al, 0x0C
+    je .y
+    cmp al, 0x06
+    je .y
+    cmp al, 0x0E
+    je .y
+    cmp al, 0x04
+.y: ret
+
+; Print the MBR's four slots from bigbuf: number, kind, type, size, active flag.
+hdd_list:
+    pusha
+    mov byte [mn_i], 1
+.l: movzx bx, byte [mn_i]
+    dec bx
+    shl bx, 4
+    add bx, bigbuf + 0x1BE
+    mov [mn_ent], bx
+    cmp byte [bx + 4], 0
+    je .next
+    SAY "  "
+    movzx ax, byte [mn_i]
+    call dec16
+    SAY ") "
+    mov bx, [mn_ent]
+    mov al, [bx + 4]
+    call hdd_is_win
+    mov si, tn_win
+    je .p
+    mov si, tn_other
+    cmp al, 0xEB
+    jne .m
+    mov si, tn_bfs
+    jmp short .p
+.m: cmp al, 0xAF
     jne .p
-    mov word [cfg_part], 9
-.p: call chainload
-    SAY "!! could not start the ZETA partition, falling back to Windows", 10
+    mov si, tn_mac
+.p: call puts
+    SAY " type 0x"
+    mov bx, [mn_ent]
+    mov al, [bx + 4]
+    call hex8
+    SAY "  "
+    mov bx, [mn_ent]
+    mov eax, [bx + 12]
+    shr eax, 11                     ; 512-byte sectors -> MB
+    call dec32
+    SAY " MB"
+    mov bx, [mn_ent]
+    cmp byte [bx], 0x80
+    jne .nx
+    SAY "  (active)"
+.nx: call nl
+.next:
+    inc byte [mn_i]
+    cmp byte [mn_i], 4
+    jbe .l
+    popa
+    ret
+
+tn_win:   db "Windows       ", 0
+tn_bfs:   db "ZETA / BeOS   ", 0
+tn_mac:   db "Mac OS X      ", 0
+tn_other: db "other         ", 0
+
 hdd_windows:
     mov dword [dio_lba], HDD_BACKUP_LBA     ; original MBR code ...
     mov word [dio_cnt], 1
@@ -4689,6 +4830,10 @@ part_eff:   resw 1
 want_part:  resb 1
 pbr_lba:    resd 1
 pbr_ent:    resw 1
+mn_part:    resw 1
+mn_ent:     resw 1
+mn_patch:   resb 1
+mn_i:       resb 1
 hd_drv:     resb 1
 hd_ok:      resb 1
 hd_pn:      resb 1

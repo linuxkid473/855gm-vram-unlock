@@ -94,14 +94,21 @@ replaces the MBR's *boot code* only. After that the machine shows a small menu a
 
 ```
 855gm-vram-unlock disk loader
- Z or Enter = ZETA / BeOS (video patch)     W = Windows
- default in 5 seconds. Hold SHIFT at power-on to skip this loader.
+  1) Windows        type 0x07  20480 MB  (active)
+  2) ZETA / BeOS    type 0xEB  8192 MB
+  3) Mac OS X       type 0xAF  28672 MB
+ 1-4 = boot that partition      Z = ZETA / BeOS    T = Mac OS X    W = Windows
+ Enter or wait 5 s = default. Hold SHIFT at power-on to skip this loader.
 ```
 
-**Z** applies the patch and boots the first BeOS-type (0xEB) partition's own boot sector (`PART` selects another);
-**W** boots the original MBR code with the current partition table, unpatched. The loader reads its settings from
-the config the stick had at install time (set `PATCH=1 VMEM=4096 PART=9` first; `AUTOBOOT=0` becomes 5 seconds,
-`BOOTSEL=1` makes Windows the default).
+The loader lists the partitions it finds in the MBR, so it works for any mix of systems (XP + ZETA + Mac OS X,
+or a second BeOS partition). A **number** boots exactly that partition's own boot sector: Windows/FAT/NTFS types
+as they are, everything else with the video patch applied first. **Z** boots the first BeOS-type (0xEB) partition
+(`PART` selects another), **T** the first Mac OS X-type (0xAF) one, and **W** the original MBR code with the
+current partition table, unpatched. Any other key stops the countdown. The loader reads its settings from the
+config the stick had at install time (set `PATCH=1 VMEM=4096 PART=9` first; `AUTOBOOT=0` becomes 5 seconds;
+Enter or the timeout boots `BOOTSEL`: 0 ZETA, 1 Windows, 2 Mac OS X). To change the loader after installing it,
+run **U** (uninstall) and then **I** again from the stick.
 
 What the install writes (disk layout, sectors):
 
