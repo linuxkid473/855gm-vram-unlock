@@ -1,0 +1,248 @@
+ZETA on the Dell Inspiron 510m: 1024x768 in 32-bit colour, the full write-up
+============================================================================
+Companion to ZETA-855GM-native-video-1.0.1.zip (same folder).
+Hardware: Dell Inspiron 510m, Intel 855GM graphics, BIOS A07, 1024x768 LCD, Pentium M.
+OS: ZETA 1.21 (magnussoft). Notes are from real hardware unless marked "guess".
+
+CONTENTS
+  1. The short version
+  2. The problem: ZETA is stuck at 16-bit on this laptop
+  3. Step 1, the boot stub (VESA modes with more colour)
+  4. Step 2, running the stub from the hard disk, with a boot picker
+  5. Step 3, the native Intel driver and the three bugs
+  6. The patch, byte by byte
+  7. What did NOT work, and why it is worth knowing
+  8. Wi-Fi on ZETA: do not do this on the 510m, and how to recover
+  9. Recovery recipes that saved the machine
+ 10. Side trips: Mac OS X Tiger, the ZETA 1.5 update
+ 11. Open questions
+ 12. Checksums and file list
+ 13. Credits and licence note
+
+
+1. THE SHORT VERSION
+--------------------
+* ZETA's boot menu and its VESA fallback only give you up to 16-bit colour on this laptop's
+  855GM (1 MB of stolen video memory). 32-bit needs more video memory than the BIOS offers.
+* Two separate tricks fixed that:
+    a) a pre-OS "boot stub" that tells the BIOS it has more video memory and hooks the memory
+       map, so VESA offers bigger modes (github.com/linuxkid473/855gm-vram-unlock);
+    b) switching on ZETA's own native Intel driver (extreme2.accelerant), which has to be
+       patched in 36 bytes because it has three bugs on this chip.
+* With both in place: 1024x768 at 32 bits/pixel, DOSBox works, video plays in VLC and
+  MediaPlayer. The patch is in this folder as a zip with a script, docs and a prebuilt driver.
+* Do not configure Wi-Fi on this laptop under ZETA: the Windows-driver wrapper (NDIS) panics
+  the kernel and then hangs boot. Use Ethernet. Section 8 shows the recovery if it already
+  happened to you.
+
+
+2. THE PROBLEM
+--------------
+The 510m's BIOS gives the 855GM only 1 MB of video memory. A 1024x768 screen at 32-bit needs
+3 MB (pitch 4096 x 768 lines). ZETA's boot loader lists only modes the BIOS reports, and its
+VESAConfig tool is limited to 8/16-bit. So the best you get is 1024x768 at 16-bit.
+
+On this chip the memory does exist: the 855GM maps system RAM through its GTT (the translation
+table). The BIOS just does not use it.
+
+
+3. STEP 1: THE BOOT STUB
+------------------------
+A small real-mode program (booted from a USB stick, later from the disk) runs before the OS
+loader and does this:
+  * raises the video-memory word the BIOS keeps (MMIO register 0x71414) so the BIOS believes
+    it has more memory, and fills the GTT through the MMIO window;
+  * hides that RAM from the OS with an INT 15h memory-map hook;
+  * hooks INT 10h so the GTT is refilled after every VBE mode set;
+  * opens the A20 line (port 0x92), needed because booting from USB leaves it closed;
+  * then lets the normal boot continue (for ZETA's CD, via INT 18h so this BIOS restarts its
+    boot sequence at the top with the hooks still live).
+The BIOS then offers real 32-bit 1024x768 modes. Captured BIOS state while it ran 1024x768:
+pipe B timings 0x61000-0x61014 = 053F03FF / 053F03FF / 049F0417 / 032502FF / 032502FF /
+03080302, PIPEBSRC (0x6101c) = 03FF02FF, plane B control (0x71180) = 99000000 (32bpp, no alpha),
+plane B stride (0x71188) = 4096, plane B size (0x71190) = 02FF03FF, panel fitter control
+(0x61230) = 00000668 (off), LVDS (0x61180) = C0308300 (pipe B). These numbers were the key to the
+native driver fix below.
+Source and logs: github.com/linuxkid473/855gm-vram-unlock
+
+
+4. STEP 2: RUNNING IT FROM THE HARD DISK
+----------------------------------------
+Carrying a stick around is annoying, so the stub can install itself into the disk's gap
+(sectors 1-62): stage in 1-56, a copy of the original MBR in 60, config in 61, marker in 62.
+At power-on a menu appears (default after a timeout): number keys 1-4 boot that partition,
+Z = ZETA, T = Tiger (Mac OS X), W = Windows (the patch is skipped for Windows). Holding
+SHIFT, CTRL or ALT at power-on skips the loader and runs the original MBR code, and a corrupted
+loader falls back to the original MBR. Installing needs a gap with no live data; the installer
+backs up any non-empty gap sectors before overwriting and wants the word OVERWRITE typed.
+Notes:
+  * Installers that rewrite the MBR (the Mac OS X installer did) replace the boot code in
+    sector 0 but left sectors 1-62 intact. Uninstall (U) then install (I) restores it.
+  * Mac OS X sets its own partition active. If you remove that partition, set Windows active
+    again, otherwise the Shift bypass has nothing to boot.
+
+
+5. STEP 3: THE NATIVE INTEL DRIVER, AND THREE BUGS
+---------------------------------------------------
+ZETA ships extreme2.driver and extreme2.accelerant. The driver's device table already lists the
+855GM (PCI 8086:3582). It is not used by default. Turn it on by copying the accelerant to
+    /boot/home/config/add-ons/accelerants/intel_extreme.accelerant
+(the name must match the driver's device name) and boot with "Continue booting".
+IMPORTANT: choosing a mode under "Select fail-safe video mode" in the ZETA boot menu forces the
+VESA driver, so the native driver is then skipped.
+
+Turning it on exposed three bugs, found by reading the accelerant's disassembly and comparing
+with the BIOS register capture from section 3.
+
+Bug 1: cropped picture at 1024x768
+  Symptom: the whole 1024x768 desktop is drawn but only the top-left ~800x600 is lit; the rest is
+  black. 800x600 looks fine.
+  Cause: intel_set_display_mode writes the LCD pipe image size (PIPEBSRC) and the plane
+  base/stride, but never the plane size register DSPBSIZE (0x71190). The plane keeps the size
+  the BIOS set at boot (800x600).
+  Things that were tried first and did NOT fix it: rewriting the pipe timings and the panel
+  fitter. A symptom described as "the full desktop, cut off by black" (not "shrunk into a corner")
+  was what pointed at the plane size.
+  Fix: write DSPBSIZE = ((v_display-1) << 16) | (h_display-1).
+
+Bug 2: black screen at 32-bit in programs that draw straight into video memory
+  Symptom: DOSBox black at 32-bit, fine at 16-bit; video players black too.
+  Cause: for 32-bit the accelerant programs the display plane as "32bpp with alpha"
+  (DSPCNTR format 0x1c000000). The BIOS uses "32bpp, no alpha" (0x18000000). Programs that write
+  pixels directly leave the alpha byte at 0, which showed as black. The desktop looks normal
+  because ZETA's own drawing sets alpha.
+  Fix: change the format constant to 0x18000000 in get_color_space_format.
+  Note: this is the explanation that fits every symptom; the exact way the hardware treats a
+  zero alpha was not independently confirmed.
+
+Bug 3: pink video window with the hardware overlay
+  Symptom: after bug 2 was fixed, VLC and MediaPlayer showed a solid pink window.
+  Cause: pink is the overlay key colour. The players use the driver's video overlay, paint the
+  window in the key colour and expect the hardware to draw over it; on this setup it does not.
+  Fix: make the driver report no overlay (overlay count 0, and the two overlay allocators return
+  NULL), so players draw into the frame buffer normally.
+  Note: black video was first blamed on the overlay and a no-overlay build was tried on its own;
+  it was still black, because bug 2 was hiding underneath. Only the combination works.
+
+Result: 1024x768 at 32-bit, the full desktop, DOSBox, VLC and MediaPlayer working.
+Not tested: other 855GM laptops, other BIOS versions, ZETA 1.5, an external VGA monitor, running
+the native driver without the boot stub.
+
+
+6. THE PATCH, BYTE BY BYTE
+--------------------------
+All offsets are file offsets in the stock ZETA 1.21 extreme2.accelerant (43718 bytes, md5
+2c4c7d8dfd9b79ad70e35ce91fbccfdf); in the first LOAD segment they equal virtual addresses.
+Total change: 36 bytes.
+
+ Fix 1 (plane size), 0x4725, 29 bytes in intel_set_display_mode
+   original: 8b b3 e4 00 00 00 8b 06 8b 10 b9 80 01 07 00 8b 04 11 25 ff ff ff 83 0b 45 c4 89 04 11
+   patched : 8b 06 8b 08 0f b7 45 e4 48 c1 e0 10 0f b7 55 dc 4a 09 d0 89 81 90 11 07 00 90 90 90 90
+   (the old bytes wrote the format bits of plane A, the unused CRT plane)
+ Fix 2 (no alpha), 0x42b4..0x42b9, one byte changes
+   original: c7 01 00 00 00 1c      patched: c7 01 00 00 00 18
+ Fix 3 (no overlay)
+   0x568f  b8 01 00 00 00 -> b8 00 00 00 00     intel_overlay_count returns 0
+   0x56c8  55 89 e5       -> 31 c0 c3           intel_allocate_overlay_buffer returns NULL
+   0x58fc  55 89 e5       -> 31 c0 c3           intel_allocate_overlay returns NULL
+Output md5 of the patched file: b18748f0e23fae905b075eca4c12af4c (fix 1 alone: e67ab125d8b19542eb9e229cfc4da014).
+The zip's patch_extreme2.py applies these to YOUR copy of the file and refuses anything that is
+not the stock 1.21 file (it checks size and md5).
+
+Gotchas when installing:
+  * An old test script (zeta-capture-log.txt) added a line to /boot/home/config/boot/UserBootscript
+    that deletes the driver 60 seconds after every boot, so it only ever lasted one boot.
+    install.sh 1.0.1 removes any such line.
+  * Run install.sh with the folder next to it (1.0.1 finds its own folder): version 1.0 copied the
+    driver by a relative name and failed quietly if started from another folder.
+  * Use a small FAT32 USB stick (2 GB). A 30 GB stick gave trouble in ZETA.
+
+
+7. WHAT DID NOT WORK, AND WHY IT IS WORTH KNOWING
+--------------------------------------------------
+* ZETA 1.5 update: analysed instead of installed (222 new files, 49 rebuilt in the system
+  folders compared). No gains for this laptop: the 855GM was already supported in 1.21; the
+  Ethernet drivers have essentially the same device tables (only the rtl8139 driver gains one ID); the NDIS wrapper and Wi-Fi tool are not part of
+  the update. 1.5 adds 845G/915/945 support in the Intel driver and extras (Samba, instant
+  messaging, scanners, codecs). A forum user reported the update crashed their older PC.
+  Verdict: not worth it for this machine.
+* Quartz Extreme / Core Image on Mac OS X Tiger: no way found. Apple's Tiger drivers never
+  covered the 855GM (no OpenGL driver for it, no pixel shaders); a different chip ID does not
+  help because the hardware commands differ; booting Windows first did nothing; forcing flags
+  does not create a missing driver. Tiger runs fine at 1024x768 32-bit without acceleration.
+* 800x600 only fills the panel because the BIOS leaves the panel fitter scaling a smaller mode.
+  That is how the plane-size bug stayed hidden at first.
+
+
+8. WI-FI ON ZETA: DO NOT, AND HOW TO RECOVER
+--------------------------------------------
+ZETA has no native driver for the Centrino 802.11b/g card. It ships a wrapper (ndis) that loads
+Windows drivers (bcmwl5.sys, USR11G.SYS, bkpcmxp.sys, rtl8180.sys, w22n51.sys, w29n51.sys,
+w70n51.sys, wg311tn5.sys, found in /boot/beos/system/add-ons/kernel/ndis/). Its Wi-Fi tool only
+handles WEP.
+On the 510m, pressing "config auto" in WifiControl caused a kernel panic in the thread
+ndis_interrupt (a page fault inside memcpy). After that every boot either panicked again or
+froze at "connecting to network", even with user add-ons disabled, because the Windows drivers
+are loaded from the SYSTEM folder, not the home folder.
+Recovery that worked (the files in the home folder were not the cause):
+  1. Boot something that can write the ZETA disk: Haiku R1/beta2 (32-bit x86_gcc2h anyboot) from
+     a USB stick, "Try Haiku", not install.
+  2. In Terminal, move the NDIS link aside:
+       mv /ZETA/beos/system/add-ons/kernel/drivers/dev/net/ndis /ZETA/home/ndis-link-backup
+  3. Boot ZETA normally. Ethernet is unaffected (it uses separate native drivers).
+  To undo: move the file back to its original place.
+For internet: use the Ethernet port. If you need Wi-Fi, a travel router set to client mode gives
+ZETA a plain Ethernet connection to any modern WPA2 network. A modem's open or WEP 2.4 GHz guest
+network would also work, but WEP is weak and open networks are unprotected.
+
+
+9. RECOVERY RECIPES
+-------------------
+* Native driver gives a bad picture: hold Left Shift at the boot menu, disable user add-ons,
+  boot, run revert.sh (deletes the accelerant and its settings file).
+* Boot stub loader gets in the way: hold SHIFT/CTRL/ALT at power-on, or uninstall with U.
+* Nothing boots after a Wi-Fi panic: section 8.
+* "Safe mode options" in the ZETA boot menu may persist between boots; if the screen is stuck at
+  800x600 8-bit, check that "Disable user add-ons" is OFF and the fail-safe video mode is Default.
+* An accelerant that "keeps disappearing": check UserBootscript for a line that mentions it.
+
+
+10. SIDE TRIPS
+--------------
+* Mac OS X Tiger (JaS 10.4.8): the installer DVD boots in full colour through the stub and Tiger
+  then runs 1024x768 at 32-bit with working audio. Its installer rewrote the MBR boot code.
+  Use Disk Utility only to Erase a partition; its Partition tab rewrites the whole table.
+* BFS (the BeOS filesystem) cannot be resized by GParted or Haiku's DriveSetup. To reuse a freed
+  partition, initialise it as a new BFS volume in ZETA's Drive Setup (this erases it), or
+  reinstall.
+* Ethernet: ZETA 1.21 has native drivers for common laptop chips (eepro100, bcm44xx, ipro1000,
+  rtl8139 and more). Which one this 510m's card uses was not confirmed here.
+
+
+11. OPEN QUESTIONS
+------------------
+* Does the native driver work without the boot stub? (Untested.)
+* Does it work on other 855GM laptops or BIOS versions?
+* Why do other things behave better with the native driver on? One reader asked; the honest
+  answer is that nobody has found a direct link. Guesses: earlier Ethernet and USB patches were
+  also done in the same period; the boot stub changes low-level state; the native driver fully
+  initialises the graphics chip while VESA leaves whatever the BIOS set. A/B test: run revert.sh
+  and test again.
+* Can the overlay be made to work, so video is hardware scaled?
+
+
+12. CHECKSUMS AND FILES
+-----------------------
+ ZETA-855GM-native-video-1.0.1.zip   patcher, prebuilt driver, installer, README
+ stock extreme2.accelerant (1.21)    43718 bytes  2c4c7d8dfd9b79ad70e35ce91fbccfdf
+ patched, all three fixes            43718 bytes  b18748f0e23fae905b075eca4c12af4c
+ patched, fix 1 only (--minimal)     43718 bytes  e67ab125d8b19542eb9e229cfc4da014
+
+
+13. CREDITS AND LICENCE NOTE
+----------------------------
+Reverse engineering, patches, testing: linuxkid473 (github.com/linuxkid473/855gm-vram-unlock),
+on one Dell Inspiron 510m. The patched driver is a modified copy of magnussoft's ZETA 1.21
+extreme2.accelerant. The zip ships both a script that patches your own copy and a prebuilt copy
+for convenience; all rights to the original remain with their owners. Use at your own risk and
+keep a way to boot.

@@ -167,6 +167,16 @@ VBIOS bytes against an independent Python simulation (`tools/vbios_tool.py`), an
 (every byte checked), boot alone, the W path, a read-only disk, fallback from a corrupted loader, SHIFT bypass, uninstall back to a
 byte-identical disk, and refusals (gap not empty, partition inside the gap, already installed, wrong confirmation).
 
+## ZETA's native Intel driver at 1024x768, 32-bit
+
+ZETA ships a native Intel driver that knows the 855GM but is off by default. Switched on, it needs three small fixes
+on this chip: the LCD plane size register is never written (the 1024x768 desktop is clipped to the BIOS boot size), 32-bit
+modes use the "with alpha" plane format (programs that draw straight into video memory show black), and its video overlay
+shows a pink window. [`zeta-native/`](zeta-native/) has a script that applies the 36-byte patch to your own copy of ZETA
+1.21's `extreme2.accelerant` (it checks size and md5 first), the installer and a full guide; [`WRITEUP.txt`](zeta-native/WRITEUP.txt)
+tells the whole story, including the Wi-Fi (NDIS) panic and how to recover from it. No ZETA files are in this repository.
+Tested on a Dell Inspiron 510m with ZETA 1.21 and the stub active.
+
 ## Findings that may help others (Intel 855GM, Dell BIOS A07)
 
 - Booting from USB leaves **A20 closed**: unreal-mode accesses above 1 MB silently wrap.
@@ -178,6 +188,8 @@ byte-identical disk, and refusals (gap not empty, partition inside the gap, alre
 - ZETA 1.21's fail-safe video menu lists only **16-bit** modes, so 16-bit is the ceiling through its VESA path. The
   disc boots with El Torito **floppy emulation** (media type 2), which the stub does not emulate.
 - The chip has no packed 24-bit mode; "24-bit" means 32 bpp.
+- ZETA's native `extreme2.accelerant` trusts BIOS-left state for the LCD pipe and plane: it never writes `DSPBSIZE` (0x71190),
+  and programs 32 bpp with alpha (0x1c000000) where the BIOS uses no alpha (0x18000000); see `zeta-native/`.
 
 `logs/` has the real runs behind each finding.
 
